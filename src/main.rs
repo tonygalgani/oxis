@@ -98,21 +98,27 @@ fn shred(file_path: &str) -> Result<(), Box<dyn Error>> {
 
     // Construct the full path of the temporary file
     // The temporary file is located in the same directory as the original file
-    let new_path = format!(
-        "{}/{}",
-        path::Path::new(file_path)
-            .parent()
-            .unwrap()
-            .to_str()
-            .unwrap(),
-        new_name
-    );
+
+    let parent = path::Path::new(file_path).parent().unwrap();
+    let new_path: String;
+    if parent.to_str().unwrap().is_empty() {
+        new_path = new_name.to_string();
+    } else {
+        new_path = format!("{}/{}", parent.display(), new_name);
+    };
+
+    /* debug print
+    println!("{file_path:?}");
+    println!("{new_name:?}");
+    println!("{new_path:?}");
+    */
     // Rename the shredded file to the temporary name
     fs::rename(file_path, &new_path)?;
 
     // Remove the temporary file to complete the shredding process
     fs::remove_file(&new_path)?;
 
+    //    file.sync_data()?;
     // Return Ok to indicate that the shredding was successful
     Ok(())
 }
