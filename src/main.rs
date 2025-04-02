@@ -2,7 +2,6 @@ use std::{
     env,
     error::Error,
     fs,
-    fs::OpenOptions,
     io::{Seek, SeekFrom, Write},
     path,
     time::Instant,
@@ -12,49 +11,70 @@ fn main() {
     // Collect command-line arguments into a vector of strings
     // This vector will contain the program name, the operand to shred and any additional arguments
     let args: Vec<String> = env::args().collect();
+
     // Check if the number of arguments is less than 2 which means no operand was given
     // If so, print an error message and return from the function
     if args.len() < 2 {
         // Print an error message indicating that a file operand is missing
-        println!("shred: missing file operand");
+        eprintln!("shred: missing file operand");
         // Print a usage message showing the correct syntax
-        println!("shred [ file ]");
-        // Return from the program
-        return;
+        eprintln!("Usage: shred [options] file1_path file2_path ...");
+        std::process::exit(1);
     }
 
+    // Future flag options
+    /*
+        let mut zero = false;
+        let mut full_zero = false;
+        let mut verbose = false;
+    */
+
     // Get the program name and file path from the arguments vector
-    // The program name is the first argument, and the file path is the second argument
-    let _query = &args[0];
-    let file_path = &args[1];
+    // The program name is the first argument, the others are either flag options or file paths
+    // let _query = &args[0]; // Name of the program itself
 
-    // Record the start time of the shredding process
-    // This will be used to calculate the elapsed time later
-    let start_time = Instant::now();
-
-    // Call the shred function to shred the file
-    // Match the result of the shred function to handle both success and error cases
-    match shred(file_path) {
-        // If the shredding was successful, print a success message with the elapsed time
-        // The elapsed time is calculated with the elapsed method from the Instant object
-        Ok(_) => {
-            let elapsed_time = start_time.elapsed();
-            println!("File shredded in {elapsed_time:?}");
+    // Isolate all the file paths from the args
+    let mut files_to_shred: Vec<String> = vec![];
+    for arg in &args[1..] {
+        match arg.as_str() {
+            //        "-v" | "--verbose" => verbose = true,
+            _ => files_to_shred.push(arg.to_string()),
         }
-        // If the shredding has failed, print an error message with the file's path and the error
-        // type
-        Err(shred_error) => eprintln!("Failed to shred file {file_path:?} : {shred_error}"),
+    }
+
+    // Call the shred function over all of the file paths given
+    for file_to_shred in files_to_shred {
+        // Record the start time of the shredding process
+        // This will be used to calculate the elapsed time later
+        let start_time = Instant::now();
+
+        // Call the shred function to shred the file
+        // Match the result of the shred function to handle both success and error cases
+        match shred(file_to_shred.as_str() /*, zero*/) {
+            // If the shredding was successful, print a success message with the elapsed time
+            // The elapsed time is calculated with the elapsed method from the Instant object
+            Ok(_) => {
+                let elapsed_time = start_time.elapsed();
+                println!("File shredded in {elapsed_time:?}");
+            }
+            // If the shredding has failed, print an error message with the file's path and the error
+            // type
+            Err(shred_error) => eprintln!("Failed to shred file {file_to_shred:?} : {shred_error}"),
+        }
     }
 }
 
-fn shred(file_path: &str) -> Result<(), Box<dyn Error>> {
+fn shred(file_path: &str /*, zero: bool*/) -> Result<(), Box<dyn Error>> {
     // Parameters (temporary hardcoded)
     const OVERWRITE_PASSES: u32 = 7;
     const BLOCK_SIZE: usize = 4096; // 4 KB
 
     // Open the file to shred with solely write permission using the OpenOptions type.
     // Any error is propagated because of the ? operator.
-    let mut file = OpenOptions::new().write(true).read(true).open(file_path)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        //.read(true)
+        .open(file_path)?;
 
     // Seek to the end of the file to get its length
     // The seek method returns the new position in the file, which is the file length
@@ -74,9 +94,12 @@ fn shred(file_path: &str) -> Result<(), Box<dyn Error>> {
             // Calculate the size of the current chunk
             // If the chunk is smaller than the block size, use the smaller size
             let chunk_size = std::cmp::min(BLOCK_SIZE, (file_length - chunk) as usize) as usize;
+            // if !full_zero {
             // Fill the buffer with random data using the fill function
             // The expect method is used to handle any errors that occur during buffer filling
-            fill(&mut buffer[..chunk_size]).expect("Filling a buffer with random data failed");
+            getrandom::fill(&mut buffer[..chunk_size])
+                .expect("Filling a buffer with random data failed");
+            // }
             // Overwrite the current chunk with the random data in the buffer
             file.write_all(&buffer)?; // overwrite the file
         }
