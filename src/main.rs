@@ -1,26 +1,27 @@
 use std::{
-    env,
-    error::Error,
-    fs,
-    io::{Seek, SeekFrom, Write},
-    path,
+    env, fs,
+    io::{Result, Seek, SeekFrom, Write},
+    path::{self, PathBuf},
     time::Instant,
 };
 
 fn main() {
     // Collect command-line arguments into a vector of strings
-    // This vector will contain the program name, the operand to shred and any additional arguments
-    let args: Vec<String> = env::args().collect();
+    // This vector will contain the program name, the elements to shred and option flags
+    let cli_arguments: Vec<String> = env::args().collect();
 
-    // Check if the number of arguments is less than 2 which means no operand was given
+    // Check if the number of arguments is less than 2 which means no elements was given
     // If so, print an error message and return from the function
-    if args.len() < 2 {
+    if cli_arguments.len() < 2 {
         // Print an error message indicating that a file operand is missing
-        eprintln!("shred: missing file operand");
+        eprintln!("ERROR: no elements given to shred");
         // Print a usage message showing the correct syntax
-        eprintln!("Usage: shred [options] file1_path file2_path ...");
+        println!("Usage: oxis [flags] [files | dirs | devices]");
         std::process::exit(1);
     }
+
+    // Time the entire program run duration
+    //    let global_start_time = Instant::now();
 
     // Future flag options
     /*
@@ -30,51 +31,64 @@ fn main() {
     */
 
     // Get the program name and file path from the arguments vector
-    // The program name is the first argument, the others are either flag options or file paths
-    // let _query = &args[0]; // Name of the program itself
+    // The program name is the first argument, the others are either flag options, file paths,
+    // dirs or devices name.
+    // let _query = &cli_arguments[0]; // Name of the program itself
 
-    // Isolate all the file paths from the args
-    let mut files_to_shred: Vec<String> = vec![];
-    for arg in &args[1..] {
-        match arg.as_str() {
-            //        "-v" | "--verbose" => verbose = true,
-            _ => files_to_shred.push(arg.to_string()),
-        }
+    let mut elements_to_shred: Vec<String> = Vec::new();
+
+    // This loop isolates the elements_to_shred from the option flags which are contained within
+    // the cli_arguments vector.
+    for argument in &cli_arguments[1..] {
+        /*match arg {
+            "-v" | "--verbose" => verbose = true,
+            _ => elements_to_shred.push(arg.to_string()),
+        }*/
+        elements_to_shred.push(argument.to_string());
     }
 
-    // Call the shred function over all of the file paths given
-    for file_to_shred in files_to_shred {
-        // Record the start time of the shredding process
-        // This will be used to calculate the elapsed time later
-        let start_time = Instant::now();
-
-        // Call the shred function to shred the file
-        // Match the result of the shred function to handle both success and error cases
-        match shred(file_to_shred.as_str() /*, zero*/) {
-            // If the shredding was successful, print a success message with the elapsed time
-            // The elapsed time is calculated with the elapsed method from the Instant object
-            Ok(_) => {
-                let elapsed_time = start_time.elapsed();
-                println!("File shredded in {elapsed_time:?}");
+    // This one loop evaluates the elements_to_shred vector contents and process to shred the
+    // element correctly. It could be a simple file, a directory or an entire device.
+    for argument in elements_to_shred {
+        if let Err(evaluation_error) = element_evaluation(&PathBuf::from(argument)) {
+            eprintln!("ERROR: Failed to evaluate element [{evaluation_error:?}]")
+        }
+    }
+    // let global_duration = global_start_time.elapsed();
+    // println!("The entire shredding process lasted {global_duration:?}");
+}
+fn element_evaluation(element_path: &path::PathBuf) -> Result<()> {
+    if element_path.is_dir() {
+        for entry in fs::read_dir(element_path)? {
+            let entry = entry?;
+            let path: PathBuf = entry.path();
+            if path.is_dir() {
+                element_evaluation(&path)?;
+            } else {
+                if let Err(shred_error) = shred(&path) {
+                    eprintln!("ERROR: Failed to shred {path:?} [{shred_error}]")
+                }
             }
-            // If the shredding has failed, print an error message with the file's path and the error
-            // type
-            Err(shred_error) => eprintln!("Failed to shred file {file_to_shred:?} : {shred_error}"),
+        }
+        fs::remove_dir(element_path)?;
+    } else {
+        if let Err(shred_error) = shred(element_path) {
+            eprintln!("ERROR: Failed to shred {element_path:?} [{shred_error}]")
         }
     }
+    Ok(())
 }
 
-fn shred(file_path: &str /*, zero: bool*/) -> Result<(), Box<dyn Error>> {
+fn shred(file_path: &path::PathBuf /*, zero: bool*/) -> Result<()> {
+    // Start a timer to time the shredding process
+    let start_time = Instant::now();
     // Parameters (temporary hardcoded)
     const OVERWRITE_PASSES: u32 = 7;
     const BLOCK_SIZE: usize = 4096; // 4 KB
 
-    // Open the file to shred with solely write permission using the OpenOptions type.
-    // Any error is propagated because of the ? operator.
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        //.read(true)
-        .open(file_path)?;
+    // Use the OpenOptions struct to open the file to shred with write permission
+    // Handle all error that could happen through the process with the ? operator.
+    let mut file = fs::OpenOptions::new().write(true).open(file_path)?;
 
     // Seek to the end of the file to get its length
     // The seek method returns the new position in the file, which is the file length
@@ -141,7 +155,9 @@ fn shred(file_path: &str /*, zero: bool*/) -> Result<(), Box<dyn Error>> {
     // Remove the temporary file to complete the shredding process
     fs::remove_file(&new_path)?;
 
-    //    file.sync_data()?;
+    let shredding_duration = start_time.elapsed();
+    println!("{file_path:?} shredded in {shredding_duration:?}");
+
     // Return Ok to indicate that the shredding was successful
     Ok(())
 }
